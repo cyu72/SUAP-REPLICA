@@ -1,0 +1,8 @@
+.vscode
+CMakeFiles
+build/
+Testing/
+docker-compose.yml
+Makefile
+.DS_STORE
+.venv
