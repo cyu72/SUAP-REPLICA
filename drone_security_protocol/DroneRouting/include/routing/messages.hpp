@@ -83,72 +83,25 @@ struct GCS_MESSAGE : public MESSAGE { // used as a means to send gcs msgs
 };
 
 struct RERR : public MESSAGE {
-    std::vector<string> nonce_list;
-    std::vector<string> tsla_list;
-    std::vector<string> dst_list;
-    std::vector<string> auth_list;
     std::string retAddr; // Temp
 
     RERR() {
         this->type = ROUTE_ERROR;
     }
 
-    RERR(std::vector<string> nonce_list, std::vector<string> tsla_list, std::vector<string> dst_list, std::vector<string> auth_list) {
-        this->type = ROUTE_ERROR;
-        this->nonce_list = nonce_list;
-        this->tsla_list = tsla_list;
-        this->dst_list = dst_list;
-        this->auth_list = auth_list;
-    }
-
-    void create_rerr(const std::vector<string>& nonce_list, 
-                            const std::vector<string>& tsla_list, 
-                            const std::vector<string>& dst_list, 
-                            const std::vector<string>& auth_list) {
-        this->type = ROUTE_ERROR;
-        this->nonce_list = nonce_list;
-        this->tsla_list = tsla_list;
-        this->dst_list = dst_list;
-        this->auth_list = auth_list;
-    }
-
-    void create_rerr(const string& nonce, const string& tsla_nonce, const string& dst, const string& auth) {
-        this->type = ROUTE_ERROR;
-        this->nonce_list = {nonce};
-        this->tsla_list = {tsla_nonce};
-        this->dst_list = {dst};
-        this->auth_list = {auth};
-    }
-
     void addRetAddr(const string& addr){
         this->retAddr = addr;
     }
 
-    void create_rerr_prime(const string& nonce, const string& dst, const string& auth) {
-        this->type = ROUTE_ERROR;
-        this->nonce_list = {nonce};
-        this->tsla_list = {};  // Empty for RERR'
-        this->dst_list = {dst};
-        this->auth_list = {auth};
-    }
-
     string serialize() const {
         json j = json::object();
-        j["auth_list"] = this->auth_list;
-        j["dst_list"] = this->dst_list;
-        j["nonce_list"] = this->nonce_list;
         j["retAddr"] = this->retAddr;
-        j["tsla_list"] = this->tsla_list;
         j["type"] = this->type;
         return j.dump();
     }
 
     void deserialize(json& j) override {
         this->type = j["type"];
-        this->nonce_list = j["nonce_list"].get<std::vector<string>>();
-        this->tsla_list = j["tsla_list"].get<std::vector<string>>();
-        this->dst_list = j["dst_list"].get<std::vector<string>>();
-        this->auth_list = j["auth_list"].get<std::vector<string>>();
         this->retAddr = j["retAddr"];
     }
 };
@@ -159,7 +112,6 @@ struct RREQ : public MESSAGE {
     string destAddr; 
     unsigned long srcSeqNum;
     unsigned long destSeqNum;
-    string hash;
     string rootHash;
     unsigned long hopCount;
     int ttl; // Max number of hops allowed for RREQ to propagate through network
@@ -168,21 +120,19 @@ struct RREQ : public MESSAGE {
         this->type = ROUTE_REQUEST;
         this->srcSeqNum = 0;
         this->destSeqNum = 0;
-        this->hash = "";
         this->hopCount = 0;
         this->rootHash = "";
         this->ttl = 0;
     }
 
     RREQ(string srcAddr, string interAddr, string destAddr, unsigned long srcSeqNum, unsigned long destSeqNum, 
-         string hash, unsigned long hopCount, int ttl, string rootHash) {
+        unsigned long hopCount, int ttl, string rootHash) {
         this->type = ROUTE_REQUEST;
         this->srcAddr = srcAddr;
         this->recvAddr = interAddr;
         this->destAddr = destAddr;
         this->srcSeqNum = srcSeqNum;
         this->destSeqNum = destSeqNum;
-        this->hash = hash;
         this->hopCount = hopCount;
         this->ttl = ttl;
         this->rootHash = rootHash;
@@ -196,7 +146,6 @@ struct RREQ : public MESSAGE {
             {"recvAddr", this->recvAddr},
             {"srcSeqNum", this->srcSeqNum},
             {"destSeqNum", this->destSeqNum},
-            {"hash", this->hash},
             {"hopCount", this->hopCount},
             {"ttl", this->ttl},
             {"rootHash", this->rootHash},
@@ -212,7 +161,6 @@ struct RREQ : public MESSAGE {
         this->recvAddr = j["recvAddr"];
         this->srcSeqNum = j["srcSeqNum"];
         this->destSeqNum = j["destSeqNum"];
-        this->hash = j["hash"];
         this->hopCount = j["hopCount"];
         this->ttl = j["ttl"];
         this->rootHash = j["rootHash"];
@@ -225,7 +173,6 @@ struct RREP : public MESSAGE {
     string destAddr;
     unsigned long srcSeqNum;
     unsigned long destSeqNum;
-    string hash;
     unsigned long hopCount;
     int ttl;
 
@@ -233,18 +180,16 @@ struct RREP : public MESSAGE {
         this->type = ROUTE_REPLY;
         this->srcSeqNum = 0;
         this->destSeqNum = 0;
-        this->hash = "";
         this->hopCount = 0;
         this->ttl = 0;
     }
 
-    RREP(string srcAddr, string destAddr, unsigned long srcSeqNum, unsigned long destSeqNum, string hash, unsigned long hopCount, int ttl) {
+    RREP(string srcAddr, string destAddr, unsigned long srcSeqNum, unsigned long destSeqNum, unsigned long hopCount, int ttl) {
         this->type = ROUTE_REPLY;
         this->srcAddr = srcAddr;
         this->destAddr = destAddr;
         this->srcSeqNum = srcSeqNum;
         this->destSeqNum = destSeqNum;
-        this->hash = hash;
         this->hopCount = hopCount;
         this->ttl = ttl;
     }
@@ -257,7 +202,6 @@ struct RREP : public MESSAGE {
             {"recvAddr", this->recvAddr},
             {"srcSeqNum", this->srcSeqNum},
             {"destSeqNum", this->destSeqNum},
-            {"hash", this->hash},
             {"hopCount", this->hopCount},
             {"ttl", this->ttl}
         };
@@ -271,7 +215,6 @@ struct RREP : public MESSAGE {
         this->recvAddr = j["recvAddr"];
         this->srcSeqNum = j["srcSeqNum"];
         this->destSeqNum = j["destSeqNum"];
-        this->hash = j["hash"];
         this->hopCount = j["hopCount"];
         this->ttl = j["ttl"];
     }

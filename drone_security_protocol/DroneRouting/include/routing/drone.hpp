@@ -25,9 +25,6 @@
 #include <iomanip>
 #include <netdb.h>
 #include <nlohmann/json.hpp>
-#include <openssl/sha.h>
-#include <openssl/hmac.h>
-#include <openssl/rand.h>
 #include <chrono>
 #include <sys/time.h>
 #include <ctime>
@@ -132,11 +129,8 @@ class drone {
         void cleanupExpiredRoutes();
         bool addPendingRoute(const PendingRoute& route);
 
-        std::deque<string> hashChainCache; 
-
         int sendData(string containerName, const string& msg);
         void sendDataUDP(const string&, const string&);
-        string sha256(const string& inn);
         void initMessageHandler(json& data);
         void routeRequestHandler(json& data);
         void routeReplyHandler(json& data);
@@ -148,7 +142,6 @@ class drone {
         void neighborDiscoveryFunction();
         void neighborDiscoveryHelper();
         void processPendingRoutes();
-        string getHashFromChain(unsigned long seqNum, unsigned long hopCount);
 
         const uint8_t max_hop_count = std::stoul((std::getenv("MAX_HOP_COUNT"))); // Maximum number of nodes we can/allow route through
         const uint8_t max_seq_count = std::stoul((std::getenv("MAX_SEQ_COUNT")));
@@ -162,18 +155,7 @@ class drone {
         const unsigned int helloRecvTimeout = 5; // Acceptable time to wait for a hello message
         std::mutex helloRecvTimerMutex, routingTableMutex;
 
-        string generate_nonce(const size_t length = 16);
-
         std::shared_ptr<spdlog::logger> logger;
-
-        std::set<std::string> validatedNodes;
-        std::mutex validationMutex;
-        std::promise<void> init_promise;
-        bool cert_received = false;
-        bool isValidatedSender(const std::string& sender);
-        void markSenderAsValidated(const std::string& sender);
-        std::vector<uint8_t> generateChallengeData(size_t length = 32);
-        void challengeResponseHandler(json& data);
 };
 
 #endif

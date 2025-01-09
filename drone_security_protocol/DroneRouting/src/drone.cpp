@@ -319,18 +319,6 @@ int drone::sendData(string containerName, const string& msg) {
     return 0;
 }
 
-string drone::getHashFromChain(unsigned long seqNum, unsigned long hopCount) {
-    size_t index = (seqNum - 1) * this->max_hop_count + hopCount;
-    
-    if (index >= hashChainCache.size()) {
-        logger->error("Hash chain access out of bounds: {} >= {}", 
-                        index, hashChainCache.size());
-        throw std::out_of_range("Hash chain index out of bounds");
-    }
-    
-    return hashChainCache[index];
-}
-
 void drone::initRouteDiscovery(const string& destAddr){
     /* Constructs an RREQ and broadcast to neighbors
     It is worth noting that routes may sometimes be incorrectly not found because a routing table clear may occur during the route discovery process. To mitagate this issue, we can try any or all of the following: 1) Retry the route discovery process X times before giving up. 2) Increase the amount of time before a routing table clear occurs (Currently at 30 seconds). Check github issue for full description.
@@ -344,14 +332,6 @@ void drone::initRouteDiscovery(const string& destAddr){
         msg->destSeqNum = (it) ? it->seqNum : 0;
     }
     msg->hopCount = 1; // 1 = broadcast range
-            try {
-            msg->hash = (msg->srcSeqNum == 1) ? 
-                getHashFromChain(1, 1) : 
-                getHashFromChain(msg->srcSeqNum - 1, 1);
-        } catch (const std::out_of_range& e) {
-            logger->error("Hash chain access error: {}", e.what());
-            return;
-        }
 
     globalStartTime = std::chrono::high_resolution_clock::now();
     string buf = msg->serialize();
@@ -374,26 +354,6 @@ void drone::initMessageHandler(json& data) {
     this->tesla.routingTable.insert(msg.srcAddr, 
         ROUTING_TABLE_ENTRY(msg.srcAddr, msg.srcAddr, 0, 1, 
             std::chrono::system_clock::now()));
-}
-
-std::vector<uint8_t> drone::generateChallengeData(size_t length) {
-    std::vector<uint8_t> data(length);
-    if (RAND_bytes(data.data(), length) != 1) {
-        throw std::runtime_error("Failed to generate random challenge data");
-    }
-    return data;
-}
-
-
-bool drone::isValidatedSender(const std::string& senderAddr) {
-    std::lock_guard<std::mutex> lock(this->validationMutex);
-    return validatedNodes.find(senderAddr) != validatedNodes.end();
-}
-
-void drone::markSenderAsValidated(const std::string& senderAddr) {
-    std::lock_guard<std::mutex> lock(this->validationMutex);
-    validatedNodes.insert(senderAddr);
-    logger->info("Sender {} marked as validated", senderAddr);
 }
 
 void drone::routeRequestHandler(json& data){
@@ -422,15 +382,6 @@ void drone::routeRequestHandler(json& data){
                 logger->debug("Dropping RREQ: Smaller sequence number");
                 return;
             }
-
-            string hashRes = msg.hash;
-            int hashIterations = (this->max_hop_count * (msg.srcSeqNum - 1)) + 1 + msg.hopCount;
-            
-            logger->debug("Calculating hash iterations: {}", hashIterations);
-            for (int i = 1; i < hashIterations; i++) {
-                hashRes = sha256(hashRes);
-                logger->trace("Hash iteration {}: {}", i, hashRes);
-            }
         }
 
         // Check if we're the destination
@@ -454,10 +405,6 @@ void drone::routeRequestHandler(json& data){
                 }
 
                 rrep.hopCount = 1;
-                rrep.hash = this->hashChainCache[(msg.srcSeqNum - 1) * (this->max_hop_count) + rrep.hopCount];
-
-                RERR rerr_prime;
-                string nonce = generate_nonce();
 
                 string buf = rrep.serialize();
                 logger->info("Sending RREP: {}", buf);
@@ -490,8 +437,6 @@ void drone::routeRequestHandler(json& data){
                 this->tesla.routingTable.insert(msg.srcAddr, 
                     ROUTING_TABLE_ENTRY(msg.srcAddr, msg.recvAddr, msg.srcSeqNum, 
                     msg.hopCount, std::chrono::system_clock::now()));
-
-                msg.hash = this->hashChainCache[(msg.srcSeqNum - 1) * (this->max_hop_count) + msg.hopCount];
 
                 msg.recvAddr = this->addr;
                 string buf = msg.serialize();
@@ -528,11 +473,6 @@ void drone::routeReplyHandler(json& data) {
         logger->debug("RREP Details - SrcAddr: {}, DestAddr: {}, HopCount: {}, SeqNum: {}", 
                      msg.srcAddr, msg.destAddr, msg.hopCount, msg.srcSeqNum);
 
-        // Validate message fields
-        if (msg.hash.empty()) {
-            logger->error("Invalid RREP: Empty hash");
-            return;
-        }
 
         // Check if we have routing table entries for validation
         logger->debug("Checking routing table entries for addr: {}", msg.recvAddr);
@@ -541,10 +481,6 @@ void drone::routeReplyHandler(json& data) {
             this->tesla.routingTable.print();
             return;
         }
-
-        // Hash verification
-        string hashRes = msg.hash;
-        int hashIterations = (this->max_hop_count * (msg.srcSeqNum - 1)) + 1 + msg.hopCount;
 
         if (msg.srcSeqNum < this->tesla.routingTable[msg.recvAddr].seqNum) {
             logger->error("Dropping RREP: Smaller sequence number");
@@ -599,7 +535,6 @@ void drone::routeReplyHandler(json& data) {
                 }
 
                 msg.hopCount++;
-                msg.hash = this->hashChainCache[(msg.srcSeqNum - 1) * (this->max_hop_count) + msg.hopCount];
                 msg.recvAddr = this->addr;
 
                 string buf = msg.serialize();
@@ -622,37 +557,6 @@ void drone::routeReplyHandler(json& data) {
     } catch (const std::exception& e) {
         logger->error("Critical error in routeReplyHandler: {}", e.what());
     }
-}
-
-string drone::generate_nonce(const size_t length) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, 255);
-
-    std::vector<unsigned char> random_bytes(length);
-    for (size_t i = 0; i < length; ++i) {
-        random_bytes[i] = static_cast<unsigned char>(dis(gen));
-    }
-
-    std::stringstream ss;
-    for (const auto &byte : random_bytes) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(byte);
-    }
-
-    return ss.str();
-}
-
-string drone::sha256(const string& inn){
-// Computes the hash X times, returns final hash
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
-    SHA256_Update(&sha256, inn.c_str(), inn.size());
-    SHA256_Final(hash, &sha256);
-    std::stringstream ss;
-    for(int i = 0; i < SHA256_DIGEST_LENGTH; ++i)
-        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hash[i]);
-    return ss.str();
 }
 
 void drone::sendDataUDP(const string& containerName, const string& msg) {
@@ -684,28 +588,6 @@ void drone::neighborDiscoveryHelper(){
 }
 
 void drone::neighborDiscoveryFunction(){
-    /* HashChain is generated where the most recent hashes are stored in the front (Eg. 0th index is the most recent hash)
-    
-    Temp: Hardcoding number of hashes in hashChain (50 seqNums * 7 max hop distance) = 350x hashed
-        What happens when we reach the end of the hash chain?
-        Skipping the step to verify authenticity of drone (implement later, not very important) 
-        
-    TODO: Include function that dynamically generates hashChain upon nearing depletion    
-        */
-    unsigned char hBuf[56];
-    RAND_bytes(hBuf, sizeof(hBuf));
-    std::stringstream ss;
-    for (int i = 0; i < sizeof(hBuf); ++i) {
-        ss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(hBuf[i]);
-    }
-    string hash = ss.str();
-    int hashIterations = this->max_seq_count * this->max_hop_count;
-    for (int i = 0; i < hashIterations; ++i) {
-        hash = sha256(hash);
-        this->hashChainCache.push_front(hash);
-        // cout << "Hash: " << hash << endl;
-    }
-
     auto resetTableTimer = std::chrono::steady_clock::now();
     std::thread neighborDiscoveryThread([&](){
         this->neighborDiscoveryHelper();
