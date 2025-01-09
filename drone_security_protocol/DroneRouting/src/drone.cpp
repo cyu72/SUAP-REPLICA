@@ -357,10 +357,6 @@ void drone::initRouteDiscovery(const string& destAddr){
             return;
         }
 
-    HashTree tree = HashTree(msg->srcAddr); // init HashTree
-    msg->hashTree = tree.toVector();
-    msg->rootHash = tree.getRoot()->hash;
-
     RERR rerr_prime; string nonce = generate_nonce(); string tsla_hash = this->tesla.getCurrentHash();
     rerr_prime.create_rerr_prime(nonce, msg->srcAddr, msg->hash);
     this->tesla.insert(msg->destAddr, TESLA::nonce_data{nonce, tsla_hash, msg->hash, msg->srcAddr});
@@ -417,13 +413,6 @@ void drone::markSenderAsValidated(const std::string& senderAddr) {
 }
 
 void drone::routeRequestHandler(json& data){
-    /*
-    Conditions checked before forwarding:
-    1) If the srcAddr is the same as the current node, drop the packet (To be removed in testing)
-    2) If the seqNum is less than the seqNum already received, drop the packet
-    3a) Calculate hash based on hopCount * seqNum (comparison with routing table is optional because of hash tree)
-    3b) Calculate hashTree where lastElement = H[droneName || hash] (hash = hashIterations * baseHash) (hashIterations = hopCount * seqNum)
-    */
     auto start_time = std::chrono::high_resolution_clock::now();
     size_t bytes_sent = 0;  // Track total bytes sent
     logger->debug("=== Starting RREQ Handler ===");
@@ -438,11 +427,6 @@ void drone::routeRequestHandler(json& data){
 
         if (msg.srcAddr == this->addr) {
             logger->debug("Dropping RREQ: Source address matches current node");
-            return;
-        }
-
-        if (msg.hashTree.empty()) {
-            logger->error("Invalid RREQ: Empty hash tree");
             return;
         }
 
@@ -470,23 +454,6 @@ void drone::routeRequestHandler(json& data){
                 logger->debug("Calculated: {}", hashRes);
                 return;
             }
-        }
-
-        // Create HashTree with RAII wrapper for automatic cleanup
-        std::unique_ptr<HashTree> tree;
-        try {
-            tree = std::make_unique<HashTree>(msg.hashTree, msg.hopCount, msg.recvAddr);
-            
-            logger->debug("Verifying HashTree");
-            if (!tree->verifyTree(msg.rootHash)) {
-                logger->error("HashTree verification failed - Root hash mismatch");
-                logger->debug("Expected root hash: {}", msg.rootHash);
-                logger->debug("Calculated root hash: {}", tree->getRoot()->hash);
-                return;
-            }
-        } catch (const std::exception& e) {
-            logger->error("Failed to create/verify HashTree: {}", e.what());
-            return;
         }
 
         // Check if we're the destination
@@ -549,11 +516,6 @@ void drone::routeRequestHandler(json& data){
                     msg.hopCount, std::chrono::system_clock::now(), msg.hash));
 
                 msg.hash = this->hashChainCache[(msg.srcSeqNum - 1) * (this->max_hop_count) + msg.hopCount];
-
-                logger->debug("Updating HashTree");
-                tree->addSelf(this->addr, msg.hopCount);
-                msg.hashTree = tree->toVector();
-                msg.rootHash = tree->getRoot()->hash;
 
                 msg.recvAddr = this->addr;
                 string buf = msg.serialize();

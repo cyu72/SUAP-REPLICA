@@ -161,7 +161,6 @@ struct RREQ : public MESSAGE {
     unsigned long destSeqNum;
     string hash;
     string rootHash;
-    std::vector<string> hashTree; // can optimize later to use memory more efficiently
     unsigned long hopCount;
     int ttl; // Max number of hops allowed for RREQ to propagate through network
 
@@ -176,7 +175,7 @@ struct RREQ : public MESSAGE {
     }
 
     RREQ(string srcAddr, string interAddr, string destAddr, unsigned long srcSeqNum, unsigned long destSeqNum, 
-         string hash, unsigned long hopCount, std::vector<string> hashTree, int ttl, string rootHash) {
+         string hash, unsigned long hopCount, int ttl, string rootHash) {
         this->type = ROUTE_REQUEST;
         this->srcAddr = srcAddr;
         this->recvAddr = interAddr;
@@ -185,7 +184,6 @@ struct RREQ : public MESSAGE {
         this->destSeqNum = destSeqNum;
         this->hash = hash;
         this->hopCount = hopCount;
-        this->hashTree = hashTree;
         this->ttl = ttl;
         this->rootHash = rootHash;
     }
@@ -200,7 +198,6 @@ struct RREQ : public MESSAGE {
             {"destSeqNum", this->destSeqNum},
             {"hash", this->hash},
             {"hopCount", this->hopCount},
-            {"hashTree", this->hashTree},
             {"ttl", this->ttl},
             {"rootHash", this->rootHash},
         };
@@ -217,7 +214,6 @@ struct RREQ : public MESSAGE {
         this->destSeqNum = j["destSeqNum"];
         this->hash = j["hash"];
         this->hopCount = j["hopCount"];
-        this->hashTree = j["hashTree"].get<std::vector<string>>();
         this->ttl = j["ttl"];
         this->rootHash = j["rootHash"];
     }

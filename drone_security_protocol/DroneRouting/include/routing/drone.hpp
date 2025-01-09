@@ -37,7 +37,6 @@
 #include <condition_variable>
 #include <future>
 #include <set>
-#include "hashTree.hpp"
 #include "messages.hpp"
 #include "ipcServer.hpp"
 #include "routingMap.hpp"
