@@ -279,38 +279,21 @@ struct RREP : public MESSAGE {
 };
 
 struct INIT_MESSAGE : public MESSAGE { // Can possibly collapse this in the future with TESLA_MESSAGE
-    enum INIT_MODE {
-        AUTH,
-        TESLA
-    };
-    INIT_MODE mode;
-    string hash;
     string srcAddr;
-    int disclosure_time;
 
     INIT_MESSAGE() {
         this->type = HELLO;
-        hash = "";
         srcAddr = "";
     }
 
-    INIT_MESSAGE(string hash, string addr) {
+    INIT_MESSAGE(string addr) {
         this->type = HELLO;
-        this->hash = hash;
         this->srcAddr = addr;
-    }
-
-    void set_tesla_init(string srcAddr, string hash, int disclosure_time) {
-        this->srcAddr = srcAddr;
-        this->hash = hash;
-        this->disclosure_time = disclosure_time;
-        this->mode = TESLA;
     }
 
     string serialize() const override {
         json j = json{
             {"type", this->type},
-            {"hash", this->hash},
             {"srcAddr", this->srcAddr}
         };
         return j.dump();
@@ -318,7 +301,6 @@ struct INIT_MESSAGE : public MESSAGE { // Can possibly collapse this in the futu
 
     void deserialize(json& j) override {
         this->type = j["type"];
-        this->hash = j["hash"];
         this->srcAddr = j["srcAddr"];
     }
     

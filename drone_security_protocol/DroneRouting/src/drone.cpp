@@ -60,7 +60,7 @@ void drone::clientResponseThread() {
                         std::lock_guard<std::mutex> rtLock(routingTableMutex);
                         tesla.routingTable.insert(init_msg.srcAddr, 
                             ROUTING_TABLE_ENTRY(init_msg.srcAddr, init_msg.srcAddr, 0, 1, 
-                                std::chrono::system_clock::now(), init_msg.hash));
+                                std::chrono::system_clock::now()));
                         
                         logger->debug("Added {} to routing table from HELLO message", init_msg.srcAddr);
                     } catch (const std::exception& e) {
@@ -145,9 +145,6 @@ void drone::dataHandler(json& data){
 
             if (sendData(this->tesla.routingTable.get(msg.destAddr)->intermediateAddr, msg.serialize()) != 0){
                 RERR rerr;
-                // Attach information here for RERR
-                TESLA::nonce_data data = this->tesla.getNonceData(msg.srcAddr);
-                rerr.create_rerr(data.nonce, data.tesla_key, data.destination, data.auth);
                 rerr.addRetAddr(msg.srcAddr);
 
                 sendData(this->tesla.routingTable.get(msg.srcAddr)->intermediateAddr, rerr.serialize());
@@ -302,7 +299,6 @@ void drone::routeErrorHandler(json& data){
 
 void drone::verifyRouteHandler(json& data){
     this->tesla.routingTable.print();
-    this->tesla.printNonceMap();
 }
 
 int drone::sendData(string containerName, const string& msg) {
@@ -357,10 +353,6 @@ void drone::initRouteDiscovery(const string& destAddr){
             return;
         }
 
-    RERR rerr_prime; string nonce = generate_nonce(); string tsla_hash = this->tesla.getCurrentHash();
-    rerr_prime.create_rerr_prime(nonce, msg->srcAddr, msg->hash);
-    this->tesla.insert(msg->destAddr, TESLA::nonce_data{nonce, tsla_hash, msg->hash, msg->srcAddr});
-
     globalStartTime = std::chrono::high_resolution_clock::now();
     string buf = msg->serialize();
     udpInterface.broadcast(buf);
@@ -376,20 +368,12 @@ void drone::initMessageHandler(json& data) {
 
     INIT_MESSAGE msg;
     msg.deserialize(data);
-    // logger->info("HELLO from {} @ {:%H:%M:%S}", msg.srcAddr, std::chrono::system_clock::now());
 
-    if (msg.mode == INIT_MESSAGE::TESLA) {
-        logger->debug("Inserting tesla info into routing table.");
-        this->tesla.routingTable[msg.srcAddr].setTeslaInfo(msg.hash, 
-            std::chrono::seconds(msg.disclosure_time));
-        this->tesla.routingTable[msg.srcAddr].print();
-    } else {
-        logger->debug("Creating routing table entry for {}", msg.srcAddr);
-        std::lock_guard<std::mutex> rtLock(this->routingTableMutex);
-        this->tesla.routingTable.insert(msg.srcAddr, 
-            ROUTING_TABLE_ENTRY(msg.srcAddr, msg.srcAddr, 0, 1, 
-                std::chrono::system_clock::now(), msg.hash));
-    }
+    logger->debug("Creating routing table entry for {}", msg.srcAddr);
+    std::lock_guard<std::mutex> rtLock(this->routingTableMutex);
+    this->tesla.routingTable.insert(msg.srcAddr, 
+        ROUTING_TABLE_ENTRY(msg.srcAddr, msg.srcAddr, 0, 1, 
+            std::chrono::system_clock::now()));
 }
 
 std::vector<uint8_t> drone::generateChallengeData(size_t length) {
@@ -447,13 +431,6 @@ void drone::routeRequestHandler(json& data){
                 hashRes = sha256(hashRes);
                 logger->trace("Hash iteration {}: {}", i, hashRes);
             }
-
-            if (hashRes != this->tesla.routingTable.get(msg.recvAddr)->hash) {
-                logger->error("Hash verification failed");
-                logger->debug("Expected: {}", this->tesla.routingTable.get(msg.recvAddr)->hash);
-                logger->debug("Calculated: {}", hashRes);
-                return;
-            }
         }
 
         // Check if we're the destination
@@ -473,7 +450,7 @@ void drone::routeRequestHandler(json& data){
                     logger->debug("Creating new routing table entry");
                     this->tesla.routingTable.insert(msg.srcAddr, 
                         ROUTING_TABLE_ENTRY(msg.srcAddr, msg.recvAddr, this->seqNum, 0, 
-                        std::chrono::system_clock::now(), msg.hash));
+                        std::chrono::system_clock::now()));
                 }
 
                 rrep.hopCount = 1;
@@ -481,7 +458,6 @@ void drone::routeRequestHandler(json& data){
 
                 RERR rerr_prime;
                 string nonce = generate_nonce();
-                string tsla_hash = this->tesla.getCurrentHash();
 
                 string buf = rrep.serialize();
                 logger->info("Sending RREP: {}", buf);
@@ -513,7 +489,7 @@ void drone::routeRequestHandler(json& data){
                 logger->debug("Inserting routing table entry");
                 this->tesla.routingTable.insert(msg.srcAddr, 
                     ROUTING_TABLE_ENTRY(msg.srcAddr, msg.recvAddr, msg.srcSeqNum, 
-                    msg.hopCount, std::chrono::system_clock::now(), msg.hash));
+                    msg.hopCount, std::chrono::system_clock::now()));
 
                 msg.hash = this->hashChainCache[(msg.srcSeqNum - 1) * (this->max_hop_count) + msg.hopCount];
 
@@ -569,21 +545,6 @@ void drone::routeReplyHandler(json& data) {
         // Hash verification
         string hashRes = msg.hash;
         int hashIterations = (this->max_hop_count * (msg.srcSeqNum - 1)) + 1 + msg.hopCount;
-        
-        logger->debug("Calculating hash iterations: {}", hashIterations);
-        for (int i = this->tesla.routingTable[msg.recvAddr].cost; i < hashIterations; i++) {
-            hashRes = sha256(hashRes);
-            logger->trace("Hash iteration {}: {}", i, hashRes);
-            logger->debug("Expected: {}", this->tesla.routingTable.get(msg.recvAddr)->hash);
-            logger->debug("Calculated: {}", hashRes);
-        }
-
-        if (hashRes != this->tesla.routingTable.get(msg.recvAddr)->hash) {
-            logger->error("Hash verification failed");
-            logger->debug("Expected: {}", this->tesla.routingTable.get(msg.recvAddr)->hash);
-            logger->debug("Calculated: {}", hashRes);
-            return;
-        }
 
         if (msg.srcSeqNum < this->tesla.routingTable[msg.recvAddr].seqNum) {
             logger->error("Dropping RREP: Smaller sequence number");
@@ -603,8 +564,7 @@ void drone::routeReplyHandler(json& data) {
                         msg.recvAddr,
                         msg.srcSeqNum,
                         msg.hopCount,
-                        std::chrono::system_clock::now(),
-                        msg.hash
+                        std::chrono::system_clock::now()
                     )
                 );
                 
@@ -633,8 +593,7 @@ void drone::routeReplyHandler(json& data) {
                             msg.recvAddr,
                             msg.srcSeqNum,
                             msg.hopCount,
-                            std::chrono::system_clock::now(),
-                            msg.hash
+                            std::chrono::system_clock::now()
                         )
                     );
                 }
@@ -642,16 +601,6 @@ void drone::routeReplyHandler(json& data) {
                 msg.hopCount++;
                 msg.hash = this->hashChainCache[(msg.srcSeqNum - 1) * (this->max_hop_count) + msg.hopCount];
                 msg.recvAddr = this->addr;
-
-                logger->debug("Creating RERR prime with nonce");
-                RERR rerr_prime;
-                string nonce = generate_nonce();
-                string tsla_hash = this->tesla.getCurrentHash();
-                
-                this->tesla.insert(
-                    msg.destAddr,
-                    TESLA::nonce_data{nonce, tsla_hash, msg.hash, msg.srcAddr}
-                );
 
                 string buf = msg.serialize();
                 bytes_sent += buf.size();
@@ -715,15 +664,12 @@ void drone::sendDataUDP(const string& containerName, const string& msg) {
 }
 
 void drone::neighborDiscoveryHelper(){
-    /* Function on another thread to repeatedly send authenticator and TESLA broadcasts */
     string msg;
-    msg = this->tesla.init_tesla(this->addr).serialize();
-    logger->trace("Broadcasting TESLA Init Message: {}", msg);
     udpInterface.broadcast(msg);
-    msg = INIT_MESSAGE(this->hashChainCache.front(), this->addr).serialize();
+    msg = INIT_MESSAGE(this->addr).serialize();
 
     while(true){
-        sleep(5); // TODO: Change to TESLA/Authenticator disclosure time?
+        sleep(5);
         {
             std::lock_guard<std::mutex> lock(this->routingTableMutex);
             this->tesla.routingTable.cleanup();
