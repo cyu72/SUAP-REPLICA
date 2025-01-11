@@ -382,7 +382,9 @@ void drone::routeRequestHandler(json& data){
             logger->debug("Found routing entries for src and recv addresses");
             
             if (msg.srcSeqNum <= this->tesla.routingTable.get(msg.srcAddr)->seqNum) {
-                logger->debug("Dropping RREQ: Smaller sequence number");
+                logger->error("Dropping RREQ: Smaller sequence number");
+                logger->error("Received seqNum: {}, Current seqNum: {}", 
+                            msg.srcSeqNum, this->tesla.routingTable.get(msg.srcAddr)->seqNum);
                 return;
             }
         }
@@ -395,7 +397,7 @@ void drone::routeRequestHandler(json& data){
                 rrep.srcAddr = this->addr;
                 rrep.destAddr = msg.srcAddr;
                 rrep.recvAddr = this->addr;
-                rrep.srcSeqNum = msg.srcSeqNum;
+                rrep.srcSeqNum = this->seqNum;
 
                 if (this->tesla.routingTable.find(msg.destAddr)) {
                     rrep.destSeqNum = this->tesla.routingTable.get(msg.destAddr)->seqNum;
