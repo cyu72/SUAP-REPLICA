@@ -35,7 +35,7 @@
 #include <future>
 #include <set>
 #include "messages.hpp"
-#include "ipcServer.hpp"
+#include "ipc_server.hpp"
 #include "routingMap.hpp"
 #include "routingTableEntry.hpp"
 #include "network_adapters/kube_udp_interface.hpp"
@@ -149,13 +149,14 @@ class drone {
 
         UDPInterface udpInterface;
         TCPInterface tcpInterface;
-        IPCServer* ipcServer = nullptr;
+        std::unique_ptr<IPCServer> ipc_server;
 
         std::chrono::steady_clock::time_point helloRecvTimer = std::chrono::steady_clock::now();
         const unsigned int helloRecvTimeout = 5; // Acceptable time to wait for a hello message
         std::mutex helloRecvTimerMutex, routingTableMutex;
 
         std::shared_ptr<spdlog::logger> logger;
+        void handleIPCMessage(const std::string& message);
 };
 
 #endif

@@ -3,8 +3,6 @@ project(drone_routing)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-# Enable position independent code for all targets
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # Enable parallel compilation
@@ -17,12 +15,13 @@ endif()
 add_compile_options(-O3)
 
 file(GLOB_RECURSE LIB_SOURCES "src/*.cpp")
+list(REMOVE_ITEM LIB_SOURCES "${PROJECT_SOURCE_DIR}/src/main.cpp")
 
 include_directories(${PROJECT_SOURCE_DIR}/include)
 include_directories(${PROJECT_SOURCE_DIR}/include/routing)
 include(FetchContent)
 
-# Fetch dependencies
+# Dependencies remain the same
 FetchContent_Declare(
   nlohmann_json
   GIT_REPOSITORY https://github.com/nlohmann/json.git
@@ -31,7 +30,6 @@ FetchContent_Declare(
 set(JSON_BuildTests OFF CACHE INTERNAL "")
 set(JSON_Install OFF CACHE INTERNAL "")
 
-# Configure spdlog with PIC
 FetchContent_Declare(
   spdlog
   GIT_REPOSITORY https://github.com/gabime/spdlog.git
@@ -48,15 +46,12 @@ set(HTTPLIB_COMPILE ON CACHE INTERNAL "")
 
 FetchContent_MakeAvailable(nlohmann_json spdlog httplib)
 
-# OpenSSL configuration
-set(OPENSSL_ROOT_DIR "" CACHE PATH "OpenSSL root directory")
-
 find_package(OpenSSL REQUIRED)
 if(NOT OpenSSL_FOUND)
   message(FATAL_ERROR "OpenSSL not found. Please install OpenSSL or specify OPENSSL_ROOT_DIR.")
 endif()
 
-# DroneRouting Library
+# Library target
 add_library(DroneRouting SHARED ${LIB_SOURCES})
 target_include_directories(DroneRouting 
   PUBLIC 
@@ -79,13 +74,6 @@ set_target_properties(DroneRouting PROPERTIES
   UNITY_BUILD ON
 )
 
-# Use precompiled headers
-target_precompile_headers(DroneRouting PUBLIC
-  <vector>
-  <string>
-  <nlohmann/json.hpp>
-  <spdlog/spdlog.h>
-  PRIVATE
-  <openssl/ssl.h>
-  <openssl/crypto.h>
-)
+# Executable target
+add_executable(drone_app src/main.cpp)
+target_link_libraries(drone_app PRIVATE DroneRouting)

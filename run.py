@@ -340,7 +340,6 @@ def main():
 
     droneNum = args.drone_count
     droneImage = "cyu72/aodv:latest"
-    gcsImage = "cyu72/gcs:simulation"
 
     controller_addr = input("Enter the controller address: ")
 
@@ -369,7 +368,7 @@ metadata:
 spec:
   hostname: drone{num}
   containers: 
-    - name: drone{num}
+    - name: logs
       image: {droneImage}
       imagePullPolicy: Always
       stdin: true
@@ -407,6 +406,21 @@ spec:
         - name: start-port
           protocol: TCP
           containerPort: 8080
+        - name: ipc
+          protocol: TCP
+          containerPort: 60137
+
+    - name: terminal
+      image: cyu72/drone:latest
+      imagePullPolicy: Always
+      command: ["./drone_app", "--terminal"]
+      stdin: true
+      tty: true
+      env:
+        - name: ROUTING_HOST
+          value: "localhost"  # Can communicate via localhost since they're in same pod
+        - name: NODE_ID
+          value: "1"
 """
             service = f"""apiVersion: v1
 kind: Service
@@ -439,59 +453,6 @@ spec:
             file.write(delim)
             nodePort += 1
 
-        gcs = f"""apiVersion: v1
-kind: Pod
-metadata:
-  name: gcs
-  namespace: default
-  labels:
-    app: gcs
-    tier: drone
-spec:
-  hostname: gcs
-  containers: 
-    - name: gcs
-      image: {gcsImage}
-      imagePullPolicy: Always
-      stdin: true
-      tty: true
-      env:
-        - name: SKIP_VERIFICATION
-          value: "{args.SKIP_VERIFICATION}"
-      ports:
-        - name: main-port
-          protocol: TCP
-          containerPort: 65456
-        - name: udp-test-port
-          protocol: UDP
-          containerPort: 65457
-        - name: flask-port
-          protocol: TCP
-          containerPort: 5000"""
-        
-        gcs_service = f"""apiVersion: v1
-kind: Service
-metadata:
-  name: gcs-service
-spec:
-  type: LoadBalancer
-  selector:
-    app: gcs
-    tier: drone
-  ports:
-  - name: gcs-port
-    protocol: TCP
-    port: 80
-    targetPort: 65456
-  - name: udp-test-port
-    protocol: UDP
-    port: 65457
-    targetPort: 65457
-  - name: flask-port
-    protocol: TCP
-    port: 5000
-    targetPort: 5000"""
-        
         configMap = f"""apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -506,7 +467,7 @@ data:
       - 192.168.1.101-192.168.1.150
 """
         
-        file.write(gcs + "\n" + delim + gcs_service + "\n" + delim + configMap + "\n")
+        file.write(configMap + "\n")
         file.close()
         
     valid_config = False

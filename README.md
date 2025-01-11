@@ -1,4 +1,8 @@
-# Simulation Startup Guide
+# Startup Guide
+
+Simulation uses run.py file
+Utilization on raspberry pis requires loading the image and using docker compose up
+Main Branch supports both sim and live environments with terminal
 
 ## Quick Start
 
@@ -15,46 +19,6 @@
 3. **Configure IP address:**
    - Run `ifconfig` and locate the `inet addr`
    - Use this IP address in your configuration
-
-## Deployment Steps
-
-1. Build Docker image, tag, and push to DockerHub
-2. Start Minikube
-3. Apply Kubernetes manifests
-
-### Docker Build and Push
-
-```bash
-docker build -t cyu72/<image-name>:latest -f <path-to-dockerfile> .
-docker push cyu82/repository:tag
-```
-
-### Minikube Startup with Calico and MetalLB
-
-1. Start Minikube with Calico:
-   ```
-   minikube start --network-plugin=cni --cni=calico
-   ```
-
-2. Apply Calico and MetalLB manifests:
-   ```
-   kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.4/manifests/calico.yaml
-   kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.13.12/config/manifests/metallb-native.yaml
-   ```
-
-3. Enable MetalLB addon:
-   ```
-   minikube addons enable metallb
-   ```
-
-4. Check if the cluster is ready:
-   ```
-   while true; do kubectl get pods -l k8s-app=calico-node -A; sleep 2; done
-   ```
-   Or on Linux:
-   ```
-   watch kubectl get pods -l k8s-app=calico-node -A
-   ```
 
 ## Kubernetes Commands
 

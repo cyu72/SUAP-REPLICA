@@ -133,11 +133,8 @@ void drone::dataHandler(json& data){
     msg.deserialize(data);
 
     if (msg.isBroadcast || (msg.destAddr == this->addr)) {
-        if (this->ipcServer) {
-            this->ipcServer->sendData(msg.data + "\n");
-        } else {
-            logger->error("IPC Server not initialized");
-        }
+        logger->debug("Received data: {}", msg.data);
+        // Pass data up to application layer
     } else {
         logger->debug("Forwarding data to next hop");
         if (this->tesla.routingTable.find(msg.destAddr)) {
@@ -317,6 +314,12 @@ int drone::sendData(string containerName, const string& msg) {
     }
     logger->info("Data sent to {}", containerName);
     return 0;
+}
+
+void drone::handleIPCMessage(const std::string& message) {
+    std::lock_guard<std::mutex> lock(queueMutex);
+    messageQueue.push(message);
+    cv.notify_one();
 }
 
 void drone::initRouteDiscovery(const string& destAddr){
@@ -623,7 +626,12 @@ void drone::start() {
         threads.emplace_back([this](){ neighborDiscoveryFunction(); });
         threads.emplace_back([this](){ clientResponseThread(); });
         
-        ipcServer = new IPCServer(60137);
+        ipc_server = std::make_unique<IPCServer>(60137, 
+            [this](const std::string& msg) { 
+                this->handleIPCMessage(msg); 
+            }
+        );
+        ipc_server->start();
         logger->info("Entering main server loop");
         
         while (running) {
