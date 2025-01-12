@@ -9,7 +9,7 @@ auto wlan0
 iface wlan0 inet static
     address 192.168.1.X  # Replace X with unique number for each Pi (1,2,3,etc)
     netmask 255.255.255.0
-    wireless-channel 1
+    wireless-channel 36
     wireless-essid MyAdHocNetwork
     wireless-mode ad-hoc
 EOF
@@ -26,7 +26,7 @@ sudo sysctl -p /etc/sysctl.d/99-adhoc.conf
 # 4. Configure wireless parameters
 sudo iwconfig wlan0 mode ad-hoc
 sudo iwconfig wlan0 essid "MyAdHocNetwork"
-sudo iwconfig wlan0 channel 1
+sudo iwconfig wlan0 channel 36
 
 # 5. Bring up the interface with new settings
 sudo ifconfig wlan0 down
