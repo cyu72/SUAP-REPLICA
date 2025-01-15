@@ -6,7 +6,7 @@ std::chrono::high_resolution_clock::time_point globalEndTime;
 drone::drone(int port, int nodeID) : udpInterface(BRDCST_PORT), tcpInterface(port) {
     logger = createLogger(fmt::format("drone_{}", nodeID));
 
-    this->addr = "drone" + std::to_string(nodeID) + "-service.default";
+    this->addr = std::getenv("NODE_IP") ? std::string(std::getenv("NODE_IP")) : throw std::runtime_error("NODE_IP not set");
     this->port = port;
     this->nodeID = nodeID;
     this->seqNum = 0;
@@ -299,9 +299,9 @@ void drone::verifyRouteHandler(json& data){
 }
 
 int drone::sendData(string containerName, const string& msg) {
-    logger->debug("Attempting to connect to {} on port {}", containerName, PORT_NUMBER);
+    logger->debug("Attempting to connect to {} on port {}", containerName, this->port);
     TCPInterface clientSocket(0, false); // 0 for port, false for is_server
-    if (clientSocket.connect_to(containerName, PORT_NUMBER) == -1) {
+    if (clientSocket.connect_to(containerName, this->port) == -1) {
         logger->error("Error connecting to {}", containerName);
         return -1;
     }
@@ -561,14 +561,6 @@ void drone::routeReplyHandler(json& data) {
         logger->debug("=== Finished RREP Handler ===");
     } catch (const std::exception& e) {
         logger->error("Critical error in routeReplyHandler: {}", e.what());
-    }
-}
-
-void drone::sendDataUDP(const string& containerName, const string& msg) {
-    try {
-        udpInterface.sendTo(containerName, msg, BRDCST_PORT);
-    } catch (const std::exception& e) {
-        logger->error("Error sending UDP data: {}", e.what());
     }
 }
 

@@ -339,7 +339,7 @@ def main():
     global matrix, processes, threads
 
     droneNum = args.drone_count
-    droneImage = "cyu72/aodv:latest"
+    droneImage = "cyu72/aodv:simulation"
 
     controller_addr = input("Enter the controller address: ")
 

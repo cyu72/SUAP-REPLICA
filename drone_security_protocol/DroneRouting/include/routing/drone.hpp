@@ -1,6 +1,5 @@
 #ifndef DRONE_HPP
 #define DRONE_HPP
-#define PORT_NUMBER 80
 #define BRDCST_PORT 65457
 #include <cstring>
 #include <mutex>
@@ -38,7 +37,7 @@
 #include "ipc_server.hpp"
 #include "routingMap.hpp"
 #include "routingTableEntry.hpp"
-#include "network_adapters/kube_udp_interface.hpp"
+#include "network_adapters/ad_hoc_udp_interface.hpp"
 #include "network_adapters/tcp_interface.hpp"
 
 using json = nlohmann::json;
