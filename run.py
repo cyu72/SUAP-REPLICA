@@ -17,10 +17,10 @@ colorama.init(autoreset=True)
 matrix = []
 
 parser = argparse.ArgumentParser(description='TBD')
-parser.add_argument('--drone_count', type=int, default=5, help='Specify number of drones in simulation')
+parser.add_argument('--drone_count', type=int, default=21, help='Specify number of drones in simulation')
 parser.add_argument('--startup', action='store_true', help='Complete initial startup process (minikube)')
 parser.add_argument('--tesla_disclosure_time', type=int, default=10, help='Disclosure period in seconds of every TESLA key disclosure message')
-parser.add_argument('--max_hop_count', type=int, default=7, help='Maximium number of nodes we can route messages through')
+parser.add_argument('--max_hop_count', type=int, default=25, help='Maximium number of nodes we can route messages through')
 parser.add_argument('--max_seq_count', type=int, default=50, help='Maximium number of sequence numbers we can store')
 parser.add_argument('--timeout', type=int, default=30, help='Timeout for each request')
 parser.add_argument('--grid_size', type=int, default=12, help='Defines nxn sized grid.')
@@ -46,13 +46,13 @@ def generate_random_matrix(n, numDrones):
 
 def generate_hardcoded_matrix(n, numDrones):
     array = [
-        [1, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 14, 15, 16, 17, 18, 0],
+        [0, 0, 0, 0, 0, 0, 13, 0, 0, 0, 19, 0],
+        [0, 0, 0, 0, 0, 0, 12, 0, 0, 0, 20, 0],
+        [0, 0, 0, 0, 0, 0, 11, 0, 0, 0, 21, 0],
+        [0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0],
+        [0, 0, 0, 0, 0, 0, 9, 0, 0, 0, 0, 0],
+        [3, 4, 1, 2, 6, 7, 8, 0, 0, 0, 0, 0],
         [5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -224,33 +224,52 @@ def get_neighbors(matrix, i, j):
         neighbors.append(matrix[i][j+1])
     return neighbors
 
-def create_network_policy(drone_number, neighbors):
-    return f"""apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: ingress-selector{drone_number}
-spec:
-  podSelector:
-    matchLabels:
-      app: drone{drone_number}
-      tier: drone
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          app: gcs
-  - from:
-    - podSelector:
-        matchExpressions:
-        - {{key: app, operator: In, values: [{', '.join(['drone' + str(neighbor) for neighbor in neighbors])}]}}"""
-
-def update_network_policies(matrix):
+def create_network_policies(matrix):
     policies = []
     for i in range(len(matrix)):
         for j in range(len(matrix[i])):
             if matrix[i][j] != 0:
                 neighbors = get_neighbors(matrix, i, j)
-                policy = create_network_policy(matrix[i][j], neighbors)
+                policy = f"""apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ingress-selector{matrix[i][j]}
+spec:
+  podSelector:
+    matchLabels:
+      app: drone{matrix[i][j]}
+      tier: drone
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: gcs
+    ports:
+    - protocol: TCP
+      port: 65456
+    - protocol: UDP
+      port: 65457
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 60137
+  - from:
+    - podSelector:
+        matchExpressions:
+        - key: app
+          operator: In
+          values: [{', '.join([f'drone{n}' for n in neighbors])}]
+    ports:
+    - protocol: TCP
+      port: 65456
+    - protocol: UDP
+      port: 65457
+    - protocol: TCP
+      port: 8080
+    - protocol: TCP
+      port: 60137"""
                 policies.append(policy)
     
     with open('etc/kubernetes/deploymentNetworkPolicy.yml', 'w') as file:
@@ -304,7 +323,7 @@ def update_coords():
             return jsonify({"error": f"Position ({to_i}, {to_j}) is not empty"}), 400
         
         matrix = move_drone(matrix, drone, (to_i, to_j))
-        update_network_policies(matrix)
+        create_network_policies(matrix)
         print(f"Drone {drone} moved to position ({to_i}, {to_j})")
         print("Matrix updated and network policies updated.")
         print_matrix(matrix)
@@ -343,9 +362,6 @@ def main():
 
     controller_addr = input("Enter the controller address: ")
 
-    if args.simulation_level == 'kube':
-        gcs_ip = 'gcs-service.default'
-
     if args.startup:
         subprocess.run("minikube start --insecure-registry='localhost:5001' --network-plugin=cni --cni=calico", shell=True, check=True)
         subprocess.run("kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v3.26.4/manifests/calico.yaml", shell=True, check=True)
@@ -376,10 +392,10 @@ spec:
       env:
         - name: NODE_ID
           value: "{num}"
+        - name: NODE_IP
+          value: "drone{num}-service.default"
         - name: PORT
           value: "65456"
-        - name: NODE_ID
-          value: "{num}"
         - name: TESLA_DISCLOSE
           value: "{args.tesla_disclosure_time}"
         - name: MAX_HOP_COUNT
@@ -392,8 +408,6 @@ spec:
           value: "{args.timeout}"
         - name: LOG_LEVEL
           value: "{args.log_level}"
-        - name: GCS_IP
-          value: "{gcs_ip}"
         - name: DRONE_COUNT
           value: "{args.drone_count}"
       ports:
@@ -411,16 +425,16 @@ spec:
           containerPort: 60137
 
     - name: terminal
-      image: cyu72/drone:latest
+      image: cyu72/aodv:simulation
       imagePullPolicy: Always
       command: ["./drone_app", "--terminal"]
       stdin: true
       tty: true
       env:
         - name: ROUTING_HOST
-          value: "localhost"  # Can communicate via localhost since they're in same pod
+          value: "localhost"
         - name: NODE_ID
-          value: "1"
+          value: "{num}"
 """
             service = f"""apiVersion: v1
 kind: Service
@@ -435,7 +449,7 @@ spec:
   ports:
   - name: drone-port
     protocol: TCP
-    port: 80
+    port: 65456
     targetPort: 65456
   - name: udp-test-port
     protocol: UDP
@@ -452,7 +466,7 @@ spec:
             file.write(service)
             file.write(delim)
             nodePort += 1
-
+        
         configMap = f"""apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -486,59 +500,10 @@ data:
         user_input = input("Is this a valid configuration? (yes/no): ")
         if user_input.lower() == "yes":
             valid_config = True
+            create_network_policies(matrix)
 
     if (args.startup):
         time.sleep(45)
-
-    with open('etc/kubernetes/deploymentNetworkPolicy.yml', 'w') as file:
-        for i in range(len(matrix)):
-            for j in range(len(matrix[i])):
-                if matrix[i][j] != 0:
-                    neighbors = []
-                    if i > 0 and matrix[i-1][j] != 0:
-                        neighbors.append(matrix[i-1][j])
-                    if i < len(matrix)-1 and matrix[i+1][j] != 0:
-                        neighbors.append(matrix[i+1][j])
-                    if j > 0 and matrix[i][j-1] != 0:
-                        neighbors.append(matrix[i][j-1])
-                    if j < len(matrix[i])-1 and matrix[i][j+1] != 0:
-                        neighbors.append(matrix[i][j+1])
-
-                    print(f"Neighbors of drone{matrix[i][j]}: {neighbors}")
-                    if neighbors:
-                        networkPolicy = f"""apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: ingress-selector{matrix[i][j]}
-spec:
-  podSelector:
-    matchLabels:
-      app: drone{matrix[i][j]}
-      tier: drone
-  ingress:
-  - from:
-    - podSelector:
-        matchExpressions:
-        - {{key: app, operator: In, values: [gcs, gcs-service, {', '.join(['drone' + str(neighbor) for neighbor in neighbors])}]}}"""
-                        file.write(networkPolicy + "\n" + delim)
-                    else:
-                        networkPolicy = f"""apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: ingress-selector{matrix[i][j]}
-spec:
-  podSelector:
-    matchLabels:
-      app: drone{matrix[i][j]}
-      tier: drone
-  ingress:
-  - from:
-    - podSelector:
-        matchLabels:
-          app: gcs-service"""
-                        file.write(networkPolicy + "\n" + delim)
-
-    file.close()
 
     command = "kubectl apply -f etc/kubernetes/droneDeployment.yml"
     process = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -629,7 +594,7 @@ spec:
                 continue
             
             matrix = move_drone(matrix, drone, (to_i, to_j))
-            update_network_policies(matrix)
+            create_network_policies(matrix)
             print("Network policies updated.")
         except ValueError as e:
             print(f"Error: {str(e)}")

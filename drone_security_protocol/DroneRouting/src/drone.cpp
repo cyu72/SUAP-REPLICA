@@ -1,8 +1,5 @@
 #include <routing/drone.hpp>
 
-std::chrono::high_resolution_clock::time_point globalStartTime;
-std::chrono::high_resolution_clock::time_point globalEndTime;
-
 drone::drone(int port, int nodeID) : udpInterface(BRDCST_PORT), tcpInterface(port) {
     logger = createLogger(fmt::format("drone_{}", nodeID));
 
@@ -336,7 +333,14 @@ void drone::initRouteDiscovery(const string& destAddr){
     }
     msg->hopCount = 1; // 1 = broadcast range
 
-    globalStartTime = std::chrono::high_resolution_clock::now();
+    PendingRoute pendingRoute;
+    pendingRoute.destAddr = destAddr;
+    pendingRoute.expirationTime = std::chrono::steady_clock::now() + 
+                                std::chrono::seconds(this->timeout_sec);
+    if (!addPendingRoute(pendingRoute)) {
+        logger->error("Failed to queue route discovery for {}", destAddr);
+        return;
+    }
     string buf = msg->serialize();
     udpInterface.broadcast(buf);
 }
@@ -382,8 +386,8 @@ void drone::routeRequestHandler(json& data){
             logger->debug("Found routing entries for src and recv addresses");
             
             if (msg.srcSeqNum <= this->tesla.routingTable.get(msg.srcAddr)->seqNum) {
-                logger->error("Dropping RREQ: Smaller sequence number");
-                logger->error("Received seqNum: {}, Current seqNum: {}", 
+                logger->warn("Dropping RREQ: Smaller sequence number");
+                logger->warn("Received seqNum: {}, Current seqNum: {}", 
                             msg.srcSeqNum, this->tesla.routingTable.get(msg.srcAddr)->seqNum);
                 return;
             }
@@ -405,7 +409,7 @@ void drone::routeRequestHandler(json& data){
                     rrep.destSeqNum = this->seqNum;
                     logger->debug("Creating new routing table entry");
                     this->tesla.routingTable.insert(msg.srcAddr, 
-                        ROUTING_TABLE_ENTRY(msg.srcAddr, msg.recvAddr, this->seqNum, 0, 
+                        ROUTING_TABLE_ENTRY(msg.srcAddr, msg.recvAddr, msg.srcSeqNum, 0, 
                         std::chrono::system_clock::now()));
                 }
 
@@ -466,7 +470,7 @@ void drone::routeRequestHandler(json& data){
 
 void drone::routeReplyHandler(json& data) {
     auto start_time = std::chrono::high_resolution_clock::now();
-    size_t bytes_sent = 0;  // Track total bytes sent
+    size_t bytes_sent = 0;
     logger->debug("=== Starting RREP Handler ===");
     try {
         logger->debug("Handling RREP payload: {}", data.dump());
@@ -488,8 +492,8 @@ void drone::routeReplyHandler(json& data) {
         }
 
         if (msg.srcSeqNum < this->tesla.routingTable[msg.recvAddr].seqNum) {
-            logger->error("Dropping RREP: Smaller sequence number");
-            logger->debug("Received seqNum: {}, Current seqNum: {}", 
+            logger->warn("Dropping RREP: Smaller sequence number");
+            logger->warn("Received seqNum: {}, Current seqNum: {}", 
                         msg.srcSeqNum, this->tesla.routingTable[msg.recvAddr].seqNum);
             return;
         }
@@ -508,16 +512,22 @@ void drone::routeReplyHandler(json& data) {
                         std::chrono::system_clock::now()
                     )
                 );
-                
-                logger->info("Route successfully established to {}", msg.srcAddr);
-                globalEndTime = std::chrono::high_resolution_clock::now();
-                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
-                    globalEndTime - globalStartTime).count();
-                logger->info("Total route establishment time: {} ms", duration);
-                
-                logger->debug("Processing any pending routes");
+
+                {
+                    std::lock_guard<std::mutex> lock(pendingRoutesMutex);
+                    auto it = std::find_if(pendingRoutes.begin(), pendingRoutes.end(),
+                        [&msg](const PendingRoute& route) {
+                            return route.destAddr == msg.srcAddr;
+                        });
+                    if (it != pendingRoutes.end()) {
+                        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - 
+                            (it->expirationTime - std::chrono::seconds(this->timeout_sec))).count();
+                        logger->info("Route establishment to {} completed in {} ms", msg.srcAddr, duration);
+                    }
+                }
+
                 this->processPendingRoutes();
-                
             } catch (const std::exception& e) {
                 logger->error("Exception while handling destination RREP: {}", e.what());
                 return;

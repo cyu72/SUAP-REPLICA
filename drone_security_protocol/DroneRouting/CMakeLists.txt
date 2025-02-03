@@ -12,7 +12,7 @@ if(NOT N EQUAL 0)
   set(CMAKE_BUILD_PARALLEL_LEVEL ${N})
 endif()
 
-add_compile_options(-O3)
+add_compile_options(-Ofast)
 
 file(GLOB_RECURSE LIB_SOURCES "src/*.cpp")
 list(REMOVE_ITEM LIB_SOURCES "${PROJECT_SOURCE_DIR}/src/main.cpp")
