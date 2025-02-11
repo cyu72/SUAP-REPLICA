@@ -26,7 +26,7 @@ public:
     void cleanup() {
         auto now = std::chrono::system_clock::now();
         for (auto it = map.begin(); it != map.end(); ) {
-            if (std::chrono::duration_cast<std::chrono::seconds>(now - it->second.ttl) > seconds(30)) {
+            if (std::chrono::duration_cast<std::chrono::seconds>(now - it->second.ttl) > seconds(90)) {
                 it = map.erase(it);
             } else {
                 ++it;

@@ -7,10 +7,14 @@ void runTerminal() {
         ipc_client client(60137);
         std::cout << "\n=== Interactive Terminal ===\n"
                   << "Available commands:\n"
-                  << "  discover <addr> - Initiate route discovery\n"
-                  << "  verify         - Verify current routes\n"
-                  << "  leave          - Leave the swarm\n"
+                  << "  discover <addr>                         - Initiate route discovery\n"
+                  << "  auto-discover <addr> <secs> <count>    - Automatically discover routes every N seconds\n"
+                  << "                                           for count times (0 = infinite)\n"
+                  << "  verify                                 - Verify current routes\n"
                   << "  (Ctrl+D to exit)\n\n";
+
+        std::unique_ptr<std::thread> autoDiscoverThread;
+        std::atomic<bool> running{false};
 
         std::string input;
         while (std::getline(std::cin, input)) {
@@ -19,31 +23,72 @@ void runTerminal() {
                 std::string command;
                 iss >> command;
 
-                json msg;
                 if (command == "discover") {
                     std::string destAddr;
                     if (!(iss >> destAddr)) {
                         std::cout << "Usage: discover <destination_address>\n";
                         continue;
                     }
-                    msg = {
-                        {"type", INIT_ROUTE_DISCOVERY},
-                        {"destAddr", destAddr}
-                    };
-                } 
-                else if (command == "verify") {
-                    msg = {{"type", VERIFY_ROUTE}};
-                } else {
-                    std::cout << "Unknown command. Use 'discover <addr>' or 'verify' or 'leave'\n";
-                    continue;
+                    client.sendData(json{{"type", INIT_ROUTE_DISCOVERY}, {"destAddr", destAddr}}.dump());
                 }
+                else if (command == "auto-discover") {
+                    // Stop any existing auto-discover thread
+                    if (autoDiscoverThread) {
+                        running = false;
+                        autoDiscoverThread->join();
+                        autoDiscoverThread.reset();
+                        std::cout << "Stopped previous auto-discover.\n";
+                    }
 
-                client.sendData(msg.dump());
-                std::cout << "Message sent. Enter another command:\n";
+                    std::string destAddr;
+                    int interval, count;
+                    if (!(iss >> destAddr >> interval >> count) || interval < 1 || count < 0) {
+                        std::cout << "Usage: auto-discover <addr> <interval_seconds> <count>\n"
+                                 << "       interval >= 1, count >= 0 (0 = infinite)\n";
+                        continue;
+                    }
+
+                    running = true;
+                    autoDiscoverThread = std::make_unique<std::thread>(
+                        [&client, &running, destAddr, interval, count]() {
+                            int sent = 0;
+                            while (running && (count == 0 || sent < count)) {
+                                client.sendData(json{
+                                    {"type", INIT_ROUTE_DISCOVERY}, 
+                                    {"destAddr", destAddr}
+                                }.dump());
+                                
+                                std::cout << "Auto-discover: Sent request " << ++sent 
+                                         << (count ? "/" + std::to_string(count) : "")
+                                         << " to " << destAddr << std::endl;
+
+                                if (sent == count) break;
+                                std::this_thread::sleep_for(std::chrono::seconds(interval));
+                            }
+                        }
+                    );
+
+                    std::cout << "Started auto-discover to " << destAddr 
+                             << " every " << interval << " seconds"
+                             << (count ? " for " + std::to_string(count) + " times" : " indefinitely")
+                             << std::endl;
+                }
+                else if (command == "verify") {
+                    client.sendData(json{{"type", VERIFY_ROUTE}}.dump());
+                }
+                else {
+                    std::cout << "Unknown command. Use discover, auto-discover, verify, or leave\n";
+                }
             } catch (const std::exception& e) {
                 std::cerr << "Error: " << e.what() << std::endl;
             }
         }
+        
+        if (autoDiscoverThread) {
+            running = false;
+            autoDiscoverThread->join();
+        }
+
     } catch (const std::exception& e) {
         std::cerr << "Terminal Error: " << e.what() << std::endl;
         exit(1);

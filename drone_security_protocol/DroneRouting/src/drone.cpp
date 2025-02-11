@@ -365,7 +365,7 @@ void drone::initMessageHandler(json& data) {
 
 void drone::routeRequestHandler(json& data){
     auto start_time = std::chrono::high_resolution_clock::now();
-    size_t bytes_sent = 0;  // Track total bytes sent
+    size_t bytes_sent = 0;
     logger->debug("=== Starting RREQ Handler ===");
     try {
         std::lock_guard<std::mutex> lock(this->routingTableMutex);
@@ -583,7 +583,7 @@ void drone::neighborDiscoveryHelper(){
         sleep(5);
         {
             std::lock_guard<std::mutex> lock(this->routingTableMutex);
-            this->tesla.routingTable.cleanup();
+            // this->tesla.routingTable.cleanup();
         }
 
         {
