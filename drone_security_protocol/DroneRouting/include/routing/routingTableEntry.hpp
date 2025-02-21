@@ -10,6 +10,7 @@ using std::cout;
 using std::endl;
 
 struct ROUTING_TABLE_ENTRY {
+    string publicKey;
     string destAddr;
     string intermediateAddr; // srcAddr = destAddr if neighbor
     int seqNum; // Destination SeqNum
@@ -19,12 +20,12 @@ struct ROUTING_TABLE_ENTRY {
     ROUTING_TABLE_ENTRY(){
         this->destAddr = "ERR";
         this->intermediateAddr = "ERR";
+        this->publicKey = "ERR";
         this->seqNum = -1;
         this->cost = -1;
         this->ttl = std::chrono::system_clock::now(); // Starting Timestamp at which this entry was created
     }
 
-    // TODO: Must fix all instances of ttl
     ROUTING_TABLE_ENTRY(string destAddr, string intermediateAddr, int seqNum, int cost, std::chrono::system_clock::time_point ttl){
         this->destAddr = destAddr;
         this->intermediateAddr = intermediateAddr;
@@ -33,9 +34,19 @@ struct ROUTING_TABLE_ENTRY {
         this->ttl = ttl;
     }
 
+    // TODO: Must fix all instances of ttl
+    ROUTING_TABLE_ENTRY(string destAddr, string intermediateAddr, int seqNum, int cost, string publicKey, std::chrono::system_clock::time_point ttl){
+        this->destAddr = destAddr;
+        this->publicKey = publicKey;
+        this->intermediateAddr = intermediateAddr;
+        this->seqNum = seqNum;
+        this->cost = cost;
+        this->ttl = ttl;
+    }
+
     void print() const {
         auto ttl_seconds = std::chrono::duration_cast<std::chrono::seconds>(ttl.time_since_epoch()).count();
-        cout << "Routing entry: " << "destAddr: " << destAddr << ", intermediateAddr: " << intermediateAddr << ", seqNum: " << seqNum << ", cost: " << cost << ", ttl: " << ttl_seconds << " seconds ";
+        cout << "Routing entry: " << "destAddr: " << destAddr << ", intermediateAddr: " << intermediateAddr << ", seqNum: " << seqNum << ", cost: " << cost << ", ttl: " << ttl_seconds << " seconds, publicKey: " << publicKey;
         
         cout << endl;
     }

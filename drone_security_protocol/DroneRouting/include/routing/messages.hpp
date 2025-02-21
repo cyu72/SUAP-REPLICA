@@ -28,6 +28,7 @@ enum MESSAGE_TYPE {
     ROUTE_REQUEST = 0,
     ROUTE_REPLY, 
     ROUTE_ERROR,
+    SECD_MSG,
     DATA,
     CERTIFICATE_VALIDATION,
     LEAVE_NOTIFICATION,
@@ -69,6 +70,43 @@ struct GCS_MESSAGE : public MESSAGE { // Repurposed to request data to be sent f
     void deserialize(json& j) override {
         this->type = j["type"];
         this->destAddr = j["destAddr"];
+    }
+};
+
+struct SECURED_MSG : public MESSAGE {
+    std::string srcAddr;
+    std::string signature;
+    std::string data;
+
+    SECURED_MSG() {
+        this->type = SECD_MSG;
+        this->srcAddr = "";
+        this->signature = "";
+        this->data = "";
+    }
+
+    SECURED_MSG(string srcAddr, string data, string signature) {
+        this->type = SECD_MSG;
+        this->srcAddr = srcAddr;
+        this->data = data;
+        this->signature = signature;
+    }
+
+    string serialize() const override {
+        json j = json{
+            {"type", this->type},
+            {"srcAddr", this->srcAddr},
+            {"data", this->data},
+            {"signature", this->signature}
+        };
+        return j.dump();
+    }
+
+    void deserialize(json& j) override {
+        this->type = j["type"];
+        this->srcAddr = j["srcAddr"];
+        this->data = j["data"];
+        this->signature = j["signature"];
     }
 };
 
@@ -211,23 +249,27 @@ struct RREP : public MESSAGE {
 
 };
 
-struct INIT_MESSAGE : public MESSAGE { // Can possibly collapse this in the future with TESLA_MESSAGE
+struct INIT_MESSAGE : public MESSAGE {
     string srcAddr;
+    string publicKey;
 
     INIT_MESSAGE() {
         this->type = HELLO;
         srcAddr = "";
+        publicKey = "";
     }
 
-    INIT_MESSAGE(string addr) {
+    INIT_MESSAGE(string addr, string pubKey) {
         this->type = HELLO;
         this->srcAddr = addr;
+        this->publicKey = pubKey;
     }
 
     string serialize() const override {
         json j = json{
             {"type", this->type},
-            {"srcAddr", this->srcAddr}
+            {"srcAddr", this->srcAddr},
+            {"publicKey", this->publicKey}
         };
         return j.dump();
     }
@@ -235,8 +277,8 @@ struct INIT_MESSAGE : public MESSAGE { // Can possibly collapse this in the futu
     void deserialize(json& j) override {
         this->type = j["type"];
         this->srcAddr = j["srcAddr"];
+        this->publicKey = j.value("publicKey", "");
     }
-    
 };
 
 struct DATA_MESSAGE : public MESSAGE {

@@ -2,6 +2,7 @@
 
 drone::drone(int port, int nodeID) : udpInterface(BRDCST_PORT), tcpInterface(port) {
     logger = createLogger(fmt::format("drone_{}", nodeID));
+    cryptoManager.generateKeyPair();
 
     this->addr = std::getenv("NODE_IP") ? std::string(std::getenv("NODE_IP")) : throw std::runtime_error("NODE_IP not set");
     this->port = port;
@@ -46,74 +47,77 @@ void drone::clientResponseThread() {
 
         try {
             jsonData = json::parse(rawMessage);
+            if (!jsonData.contains("type")) {
+                logger->error("Message missing type field");
+                continue;
+            }
+
             int messageType = jsonData["type"].get<int>();   
+            logger->debug("Processing message type: {}", messageType);
 
-            if (messageType == HELLO) {
-                    logger->debug("Processing HELLO message");
-                    try {
-                        INIT_MESSAGE init_msg;
-                        init_msg.deserialize(jsonData);
-                        
-                        std::lock_guard<std::mutex> rtLock(routingTableMutex);
-                        tesla.routingTable.insert(init_msg.srcAddr, 
-                            ROUTING_TABLE_ENTRY(init_msg.srcAddr, init_msg.srcAddr, 0, 1, 
-                                std::chrono::system_clock::now()));
-                        
-                        logger->debug("Added {} to routing table from HELLO message", init_msg.srcAddr);
-                    } catch (const std::exception& e) {
-                        logger->error("Error processing HELLO message: {}", e.what());
+            switch(messageType) {
+                case HELLO:
+                    initMessageHandler(jsonData);
+                    continue;
+                case INIT_ROUTE_DISCOVERY:
+                    {
+                        GCS_MESSAGE ctl;
+                        ctl.deserialize(jsonData);
+                        initRouteDiscovery(ctl.destAddr);
                     }
-                } 
-
-            // Process validated messages
+                    continue;
+                case VERIFY_ROUTE:
+                    verifyRouteHandler(jsonData);
+                    continue;
+            }
+            
             try {
-                switch(messageType) {
-                    case ROUTE_REQUEST:
-                        // logger->info("Processing validated RREQ from {}", srcAddr);
-                        routeRequestHandler(jsonData);
-                        break;
-                    case ROUTE_REPLY:
-                        // logger->info("Processing validated RREP from {}", srcAddr);
-                        routeReplyHandler(jsonData);
-                        break;
-                    case ROUTE_ERROR:
-                        // logger->info("Processing validated RERR from {}", srcAddr);
-                        routeErrorHandler(jsonData);
-                        break;
-                    case DATA:
-                        // logger->info("Processing validated data message from {}", srcAddr);
-                        dataHandler(jsonData);
-                        break;
-                    case HELLO:
-                        initMessageHandler(jsonData);
-                        break;
-                    case INIT_ROUTE_DISCOVERY:
-                        // logger->info("Processing validated route discovery request from {}", srcAddr);
-                        {
-                            GCS_MESSAGE ctl;
-                            ctl.deserialize(jsonData);
-                            initRouteDiscovery(ctl.destAddr);
-                        }
-                        break;
-                    case VERIFY_ROUTE:
-                        // logger->info("Processing validated route verification request from {}", srcAddr);
-                        verifyRouteHandler(jsonData);
-                        break;
-                    case EXIT:
-                        // logger->info("Processing validated exit request from {}", srcAddr);
-                        std::exit(0);
-                        break;
-                    default:
-                        logger->warn("Unrecognized message type");
-                        break;
+                SECURED_MSG secMsg;
+                secMsg.deserialize(jsonData);
+                
+                auto routeEntry = this->tesla.routingTable.get(secMsg.srcAddr);
+                if (!routeEntry) {
+                    logger->error("No routing table entry for source address: {}", secMsg.srcAddr);
+                    continue;
                 }
+                
+                if (!this->cryptoManager.verifySignature(secMsg.data, secMsg.signature, routeEntry->publicKey)) {
+                    logger->error("Failed to verify message signature");
+                    continue;
+                }
+                
+                logger->debug("Message signature verified");
+                jsonData = json::parse(secMsg.data);
+                messageType = jsonData["type"].get<int>();
             } catch (const std::exception& e) {
-                logger->error("Error processing message: {}", e.what());
+                logger->error("Failed to process secured message: {}", e.what());
+                continue;
+            }
+
+            switch(messageType) {
+                case ROUTE_REQUEST:
+                    routeRequestHandler(jsonData);
+                    break;
+                case ROUTE_REPLY:
+                    routeReplyHandler(jsonData);
+                    break;
+                case ROUTE_ERROR:
+                    routeErrorHandler(jsonData);
+                    break;
+                case DATA:
+                    dataHandler(jsonData);
+                    break;
+                case EXIT:
+                    std::exit(0);
+                    break;
+                default:
+                    logger->warn("Unrecognized message type: {}", messageType);
+                    break;
             }
         } catch (const json::parse_error& e) {
             logger->error("Failed to parse message: {}", e.what());
         } catch (const std::exception& e) {
-            logger->error("Unexpected error: {}", e.what());
+            logger->error("Error processing message: {}", e.what());
         }
     }
 
@@ -150,9 +154,8 @@ void drone::dataHandler(json& data){
 }
 
 void drone::broadcast(const std::string& msg) {
-    DATA_MESSAGE data("BRDCST", this->addr, msg, true);
-    logger->debug("Broadcasting data");
-    this->udpInterface.broadcast(data.serialize());
+    std::string nmsg = SECURED_MSG(this->addr, msg, this->cryptoManager.sign(msg)).serialize();
+    this->udpInterface.broadcast(nmsg);
 }
 
 bool drone::addPendingRoute(const PendingRoute& route) {
@@ -296,6 +299,8 @@ void drone::verifyRouteHandler(json& data){
 }
 
 int drone::sendData(string containerName, const string& msg) {
+    std::string nmsg = SECURED_MSG(this->addr, msg, this->cryptoManager.sign(msg)).serialize();
+
     logger->debug("Attempting to connect to {} on port {}", containerName, this->port);
     TCPInterface clientSocket(0, false); // 0 for port, false for is_server
     if (clientSocket.connect_to(containerName, this->port) == -1) {
@@ -303,9 +308,9 @@ int drone::sendData(string containerName, const string& msg) {
         return -1;
     }
 
-    logger->debug("Sending data: {}", msg);
+    logger->debug("Sending data: {}", nmsg);
 
-    if (clientSocket.send_data(msg) == -1) {
+    if (clientSocket.send_data(nmsg) == -1) {
         logger->error("Error sending data to {}", containerName);
         return -1;
     }
@@ -342,7 +347,7 @@ void drone::initRouteDiscovery(const string& destAddr){
         return;
     }
     string buf = msg->serialize();
-    udpInterface.broadcast(buf);
+    this->broadcast(buf);
 }
 
 void drone::initMessageHandler(json& data) {
@@ -359,7 +364,7 @@ void drone::initMessageHandler(json& data) {
     logger->debug("Creating routing table entry for {}", msg.srcAddr);
     std::lock_guard<std::mutex> rtLock(this->routingTableMutex);
     this->tesla.routingTable.insert(msg.srcAddr, 
-        ROUTING_TABLE_ENTRY(msg.srcAddr, msg.srcAddr, 0, 1, 
+        ROUTING_TABLE_ENTRY(msg.srcAddr, msg.srcAddr, 0, 1, msg.publicKey,
             std::chrono::system_clock::now()));
 }
 
@@ -451,7 +456,7 @@ void drone::routeRequestHandler(json& data){
                 string buf = msg.serialize();
                 bytes_sent += buf.size();
                 logger->debug("Broadcasting updated RREQ");
-                udpInterface.broadcast(buf);
+                this->broadcast(buf);
             } catch (const std::exception& e) {
                 logger->error("Exception while forwarding RREQ: {}", e.what());
                 return;
@@ -576,8 +581,7 @@ void drone::routeReplyHandler(json& data) {
 
 void drone::neighborDiscoveryHelper(){
     string msg;
-    udpInterface.broadcast(msg);
-    msg = INIT_MESSAGE(this->addr).serialize();
+    msg = INIT_MESSAGE(this->addr, this->cryptoManager.getPublicKey()).serialize();
 
     while(true){
         sleep(5);
@@ -616,7 +620,7 @@ void drone::neighborDiscoveryFunction(){
             }
             cv.notify_one();
         } catch (const std::exception& e) {
-            std::cerr << "Error in neighborDiscoveryFunction: " << e.what() << std::endl;
+            logger->error("Error in neighborDiscoveryFunction: {}", e.what());
             break;
         }
     }

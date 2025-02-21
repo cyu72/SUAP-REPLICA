@@ -61,8 +61,10 @@ public:
             it->second.intermediateAddr = value.intermediateAddr;
             it->second.seqNum = value.seqNum;
             it->second.cost = value.cost;
+            if (!value.publicKey.empty()) {
+                it->second.publicKey = value.publicKey;
+            }
         }
-
     }
 
     void remove(const Key& key) {

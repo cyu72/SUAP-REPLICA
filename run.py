@@ -358,7 +358,7 @@ def main():
     global matrix, processes, threads
 
     droneNum = args.drone_count
-    droneImage = "cyu72/aodv:simulation"
+    droneImage = "cyu72/suap:latest"
 
     controller_addr = input("Enter the controller address: ")
 
@@ -425,7 +425,7 @@ spec:
           containerPort: 60137
 
     - name: terminal
-      image: cyu72/aodv:simulation
+      image: cyu72/suap:latest
       imagePullPolicy: Always
       command: ["./drone_app", "--terminal"]
       stdin: true
