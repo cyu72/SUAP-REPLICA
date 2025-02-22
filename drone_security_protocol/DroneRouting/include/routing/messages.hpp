@@ -140,21 +140,21 @@ struct RREQ : public MESSAGE {
     string destAddr; 
     unsigned long srcSeqNum;
     unsigned long destSeqNum;
-    string rootHash;
     unsigned long hopCount;
     int ttl; // Max number of hops allowed for RREQ to propagate through network
+    string hashNew;
+    string hashOld;
 
     RREQ() {
         this->type = ROUTE_REQUEST;
         this->srcSeqNum = 0;
         this->destSeqNum = 0;
         this->hopCount = 0;
-        this->rootHash = "";
         this->ttl = 0;
     }
 
     RREQ(string srcAddr, string interAddr, string destAddr, unsigned long srcSeqNum, unsigned long destSeqNum, 
-        unsigned long hopCount, int ttl, string rootHash) {
+        unsigned long hopCount, int ttl) {
         this->type = ROUTE_REQUEST;
         this->srcAddr = srcAddr;
         this->recvAddr = interAddr;
@@ -163,7 +163,6 @@ struct RREQ : public MESSAGE {
         this->destSeqNum = destSeqNum;
         this->hopCount = hopCount;
         this->ttl = ttl;
-        this->rootHash = rootHash;
     }
 
     string serialize() const override {
@@ -175,8 +174,9 @@ struct RREQ : public MESSAGE {
             {"srcSeqNum", this->srcSeqNum},
             {"destSeqNum", this->destSeqNum},
             {"hopCount", this->hopCount},
-            {"ttl", this->ttl},
-            {"rootHash", this->rootHash},
+            {"ttl", this->ttl}, 
+            {"hashNew", this->hashNew},
+            {"hashOld", this->hashOld}
         };
 
         return j.dump();
@@ -191,7 +191,8 @@ struct RREQ : public MESSAGE {
         this->destSeqNum = j["destSeqNum"];
         this->hopCount = j["hopCount"];
         this->ttl = j["ttl"];
-        this->rootHash = j["rootHash"];
+        this->hashNew = j["hashNew"];
+        this->hashOld = j["hashOld"];
     }
 };
 
@@ -203,6 +204,8 @@ struct RREP : public MESSAGE {
     unsigned long destSeqNum;
     unsigned long hopCount;
     int ttl;
+    string hashNew;
+    string hashOld;
 
     RREP() {
         this->type = ROUTE_REPLY;
@@ -231,7 +234,9 @@ struct RREP : public MESSAGE {
             {"srcSeqNum", this->srcSeqNum},
             {"destSeqNum", this->destSeqNum},
             {"hopCount", this->hopCount},
-            {"ttl", this->ttl}
+            {"ttl", this->ttl},
+            {"hashNew", this->hashNew},
+            {"hashOld", this->hashOld}
         };
         return j.dump();
     }
@@ -245,6 +250,8 @@ struct RREP : public MESSAGE {
         this->destSeqNum = j["destSeqNum"];
         this->hopCount = j["hopCount"];
         this->ttl = j["ttl"];
+        this->hashNew = j["hashNew"];
+        this->hashOld = j["hashOld"];
     }
 
 };

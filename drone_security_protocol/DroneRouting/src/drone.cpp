@@ -324,12 +324,42 @@ void drone::handleIPCMessage(const std::string& message) {
     cv.notify_one();
 }
 
+string drone::computeHash(const string& data) {
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256_CTX sha256;
+    
+    if (SHA256_Init(&sha256) != 1) {
+        logger->error("Failed to initialize SHA256 context");
+        return "";
+    }
+    
+    if (SHA256_Update(&sha256, data.c_str(), data.length()) != 1) {
+        logger->error("Failed to update SHA256 hash");
+        return "";
+    }
+    
+    if (SHA256_Final(hash, &sha256) != 1) {
+        logger->error("Failed to finalize SHA256 hash");
+        return "";
+    }
+
+    std::stringstream ss;
+    ss << std::hex << std::setfill('0');
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+        ss << std::setw(2) << static_cast<int>(hash[i]);
+    }
+    
+    return ss.str();
+}
+
 void drone::initRouteDiscovery(const string& destAddr){
     /* Constructs an RREQ and broadcast to neighbors
     It is worth noting that routes may sometimes be incorrectly not found because a routing table clear may occur during the route discovery process. To mitagate this issue, we can try any or all of the following: 1) Retry the route discovery process X times before giving up. 2) Increase the amount of time before a routing table clear occurs (Currently at 30 seconds). Check github issue for full description.
     */
 
     std::unique_ptr<RREQ> msg = std::make_unique<RREQ>(); msg->type = ROUTE_REQUEST; msg->srcAddr = this->addr; msg->recvAddr = this->addr; msg->destAddr = destAddr; msg->srcSeqNum = ++this->seqNum; msg->ttl = this->max_hop_count;
+    msg->hashOld = "";
+    msg->hashNew = computeHash(msg->recvAddr + msg->hashOld); // Abdriging the hashNew field. Unicasting a new hashNew field to each neighbor is too much work. Maybe this can just mimic that
 
     {   
         std::lock_guard<std::mutex> lock(this->routingTableMutex);
@@ -398,6 +428,11 @@ void drone::routeRequestHandler(json& data){
             }
         }
 
+        if (computeHash(msg.recvAddr + msg.hashOld) != msg.hashNew) {
+            logger->error("Dropping RREQ: Hash mismatch");
+            return;
+        }
+
         // Check if we're the destination
         if (msg.destAddr == this->addr) {
             logger->info("This node is the destination, preparing RREP");
@@ -407,6 +442,8 @@ void drone::routeRequestHandler(json& data){
                 rrep.destAddr = msg.srcAddr;
                 rrep.recvAddr = this->addr;
                 rrep.srcSeqNum = this->seqNum;
+                rrep.hashOld = "";
+                rrep.hashNew = computeHash(rrep.recvAddr + rrep.hashOld);
 
                 if (this->tesla.routingTable.find(msg.destAddr)) {
                     rrep.destSeqNum = this->tesla.routingTable.get(msg.destAddr)->seqNum;
@@ -440,6 +477,8 @@ void drone::routeRequestHandler(json& data){
             try {
                 msg.hopCount++;
                 msg.ttl--;
+                msg.hashOld = msg.hashNew;
+                msg.hashNew = computeHash(this->addr + msg.hashOld);
 
                 if (this->tesla.routingTable.find(msg.destAddr)) {
                     msg.destSeqNum = this->tesla.routingTable.get(msg.destAddr)->seqNum;
@@ -503,6 +542,11 @@ void drone::routeReplyHandler(json& data) {
             return;
         }
 
+        if (computeHash(msg.recvAddr + msg.hashOld) != msg.hashNew) {
+            logger->error("Dropping RREP: Hash mismatch");
+            return;
+        }
+
         if (msg.destAddr == this->addr) {
             logger->info("This node is the destination for RREP");
             try {
@@ -556,6 +600,8 @@ void drone::routeReplyHandler(json& data) {
 
                 msg.hopCount++;
                 msg.recvAddr = this->addr;
+                msg.hashOld = msg.hashNew;
+                msg.hashNew = computeHash(this->addr + msg.hashOld);
 
                 string buf = msg.serialize();
                 bytes_sent += buf.size();
@@ -648,7 +694,7 @@ void drone::start() {
                 threads.emplace_back([this, clientSock](){
                     try {
                         string msg = tcpInterface.receive_data(clientSock);
-                        logger->info("Received TCP message: {}", msg);
+                        logger->debug("Received TCP message: {}", msg);
                         {
                             std::lock_guard<std::mutex> lock(queueMutex);
                             messageQueue.push(msg);

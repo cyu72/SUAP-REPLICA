@@ -131,7 +131,6 @@ class drone {
         bool addPendingRoute(const PendingRoute& route);
 
         int sendData(string containerName, const string& msg);
-        void sendDataUDP(const string&, const string&);
         void initMessageHandler(json& data);
         void routeRequestHandler(json& data);
         void routeReplyHandler(json& data);
@@ -155,6 +154,7 @@ class drone {
         std::chrono::steady_clock::time_point helloRecvTimer = std::chrono::steady_clock::now();
         const unsigned int helloRecvTimeout = 5; // Acceptable time to wait for a hello message
         std::mutex helloRecvTimerMutex, routingTableMutex;
+        string computeHash(const string& data);
 
         std::shared_ptr<spdlog::logger> logger;
         void handleIPCMessage(const std::string& message);
