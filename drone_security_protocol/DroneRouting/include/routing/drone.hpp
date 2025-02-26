@@ -97,6 +97,7 @@ class drone {
         void start();
         int send(const string&, string, bool=false);
         void broadcast(const string& msg);
+        std::vector<std::string> getNeighbors();
 
     private:
         class TESLA {
@@ -115,6 +116,9 @@ class drone {
         std::condition_variable cv;
         std::atomic<bool> running{true};
         std::vector<std::thread> threads;
+
+        std::unordered_set<std::string> neighbors;
+        std::mutex neighborsMutex;
 
 
         struct PendingRoute {

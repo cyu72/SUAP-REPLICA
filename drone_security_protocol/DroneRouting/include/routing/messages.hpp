@@ -78,6 +78,7 @@ struct SECURED_MSG : public MESSAGE {
     std::string signature;
     std::string data;
 
+
     SECURED_MSG() {
         this->type = SECD_MSG;
         this->srcAddr = "";
@@ -144,6 +145,8 @@ struct RREQ : public MESSAGE {
     int ttl; // Max number of hops allowed for RREQ to propagate through network
     string hashNew;
     string hashOld;
+    uint64_t sendTimestamp;
+    uint64_t maxTravelTime;
 
     RREQ() {
         this->type = ROUTE_REQUEST;
@@ -154,7 +157,7 @@ struct RREQ : public MESSAGE {
     }
 
     RREQ(string srcAddr, string interAddr, string destAddr, unsigned long srcSeqNum, unsigned long destSeqNum, 
-        unsigned long hopCount, int ttl) {
+        unsigned long hopCount, int ttl, uint64_t maxTravelTime = 5000) {
         this->type = ROUTE_REQUEST;
         this->srcAddr = srcAddr;
         this->recvAddr = interAddr;
@@ -163,6 +166,9 @@ struct RREQ : public MESSAGE {
         this->destSeqNum = destSeqNum;
         this->hopCount = hopCount;
         this->ttl = ttl;
+        this->sendTimestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        this->maxTravelTime = maxTravelTime;
     }
 
     string serialize() const override {
@@ -176,7 +182,9 @@ struct RREQ : public MESSAGE {
             {"hopCount", this->hopCount},
             {"ttl", this->ttl}, 
             {"hashNew", this->hashNew},
-            {"hashOld", this->hashOld}
+            {"hashOld", this->hashOld},
+            {"sendTimestamp", this->sendTimestamp},
+            {"maxTravelTime", this->maxTravelTime}
         };
 
         return j.dump();
@@ -193,6 +201,8 @@ struct RREQ : public MESSAGE {
         this->ttl = j["ttl"];
         this->hashNew = j["hashNew"];
         this->hashOld = j["hashOld"];
+        this->sendTimestamp = j["sendTimestamp"];
+        this->maxTravelTime = j["maxTravelTime"];
     }
 };
 
@@ -206,6 +216,8 @@ struct RREP : public MESSAGE {
     int ttl;
     string hashNew;
     string hashOld;
+    uint64_t sendTimestamp;
+    uint64_t maxTravelTime;
 
     RREP() {
         this->type = ROUTE_REPLY;
@@ -215,7 +227,7 @@ struct RREP : public MESSAGE {
         this->ttl = 0;
     }
 
-    RREP(string srcAddr, string destAddr, unsigned long srcSeqNum, unsigned long destSeqNum, unsigned long hopCount, int ttl) {
+    RREP(string srcAddr, string destAddr, unsigned long srcSeqNum, unsigned long destSeqNum, unsigned long hopCount, int ttl, uint64_t maxTravelTime = 5000) {
         this->type = ROUTE_REPLY;
         this->srcAddr = srcAddr;
         this->destAddr = destAddr;
@@ -223,6 +235,9 @@ struct RREP : public MESSAGE {
         this->destSeqNum = destSeqNum;
         this->hopCount = hopCount;
         this->ttl = ttl;
+        this->sendTimestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        this->maxTravelTime = maxTravelTime;
     }
 
     string serialize() const override {
@@ -236,7 +251,9 @@ struct RREP : public MESSAGE {
             {"hopCount", this->hopCount},
             {"ttl", this->ttl},
             {"hashNew", this->hashNew},
-            {"hashOld", this->hashOld}
+            {"hashOld", this->hashOld},
+            {"sendTimestamp", this->sendTimestamp},
+            {"maxTravelTime", this->maxTravelTime}
         };
         return j.dump();
     }
@@ -252,6 +269,8 @@ struct RREP : public MESSAGE {
         this->ttl = j["ttl"];
         this->hashNew = j["hashNew"];
         this->hashOld = j["hashOld"];
+        this->sendTimestamp = j["sendTimestamp"];
+        this->maxTravelTime = j["maxTravelTime"];
     }
 
 };

@@ -155,7 +155,9 @@ void drone::dataHandler(json& data){
 
 void drone::broadcast(const std::string& msg) {
     std::string nmsg = SECURED_MSG(this->addr, msg, this->cryptoManager.sign(msg)).serialize();
-    this->udpInterface.broadcast(nmsg);
+    for (const auto& neighbor : getNeighbors()) {
+        sendData(neighbor, msg);
+    }
 }
 
 bool drone::addPendingRoute(const PendingRoute& route) {
@@ -296,6 +298,14 @@ void drone::routeErrorHandler(json& data){
 
 void drone::verifyRouteHandler(json& data){
     this->tesla.routingTable.print();
+    
+    {
+        std::lock_guard<std::mutex> lock(neighborsMutex);
+        logger->info("Current neighbors ({}): ", neighbors.size());
+        for (const auto& neighbor : neighbors) {
+            logger->info("  - {}", neighbor);
+        }
+    }
 }
 
 int drone::sendData(string containerName, const string& msg) {
@@ -380,6 +390,11 @@ void drone::initRouteDiscovery(const string& destAddr){
     this->broadcast(buf);
 }
 
+std::vector<std::string> drone::getNeighbors() {
+    std::lock_guard<std::mutex> lock(neighborsMutex);
+    return std::vector<std::string>(neighbors.begin(), neighbors.end());
+}
+
 void drone::initMessageHandler(json& data) {
 /*Creates a routing table entry for each authenticator & tesla msg received*/
     std::lock_guard<std::mutex> lock(this->helloRecvTimerMutex);
@@ -392,6 +407,13 @@ void drone::initMessageHandler(json& data) {
     msg.deserialize(data);
 
     logger->debug("Creating routing table entry for {}", msg.srcAddr);
+    
+    {
+        std::lock_guard<std::mutex> nbLock(neighborsMutex);
+        neighbors.insert(msg.srcAddr);
+        logger->debug("Current neighbors count: {}", neighbors.size());
+    }
+    
     std::lock_guard<std::mutex> rtLock(this->routingTableMutex);
     this->tesla.routingTable.insert(msg.srcAddr, 
         ROUTING_TABLE_ENTRY(msg.srcAddr, msg.srcAddr, 0, 1, msg.publicKey,
@@ -430,6 +452,12 @@ void drone::routeRequestHandler(json& data){
 
         if (computeHash(msg.recvAddr + msg.hashOld) != msg.hashNew) {
             logger->error("Dropping RREQ: Hash mismatch");
+            return;
+        }
+
+        if (msg.sendTimestamp + msg.maxTravelTime < std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count()) {
+            logger->error("Dropping RREQ: Max travel time exceeded");
             return;
         }
 
@@ -544,6 +572,12 @@ void drone::routeReplyHandler(json& data) {
 
         if (computeHash(msg.recvAddr + msg.hashOld) != msg.hashNew) {
             logger->error("Dropping RREP: Hash mismatch");
+            return;
+        }
+
+        if (msg.sendTimestamp + msg.maxTravelTime < std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count()) {
+            logger->error("Dropping RREQ: Max travel time exceeded");
             return;
         }
 
