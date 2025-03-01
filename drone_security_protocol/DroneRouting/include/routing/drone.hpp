@@ -86,7 +86,6 @@ inline std::shared_ptr<spdlog::logger> createLogger(const std::string& name) {
     );
     logger->set_pattern("[%^%l%$] [%n] %v");
     
-    // Explicitly set the logger's level
     logger->set_level(level);
     return logger;
 }

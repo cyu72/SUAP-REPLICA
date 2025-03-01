@@ -455,10 +455,12 @@ void drone::routeRequestHandler(json& data){
             return;
         }
 
-        if (msg.sendTimestamp + msg.maxTravelTime < std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count()) {
-            logger->error("Dropping RREQ: Max travel time exceeded");
-            return;
+        // Check if max travel time is exceeded
+        auto currentTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        if (msg.sendTimestamp + msg.maxTravelTime < currentTime) {
+            logger->warn("Dropping RREQ: Max travel time exceeded");
+            // return;
         }
 
         // Check if we're the destination
@@ -575,10 +577,11 @@ void drone::routeReplyHandler(json& data) {
             return;
         }
 
-        if (msg.sendTimestamp + msg.maxTravelTime < std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count()) {
-            logger->error("Dropping RREQ: Max travel time exceeded");
-            return;
+        auto currentTime = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        if (msg.sendTimestamp + msg.maxTravelTime < currentTime) {
+            logger->warn("Dropping RREP: Max travel time exceeded");
+            // return;
         }
 
         if (msg.destAddr == this->addr) {
